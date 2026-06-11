@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ממיר וידאו לנוקיה - MOCOR Pro Web</title>
+    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+    <style>
+        body {
+            background-color: #12131a;
+            color: #ffffff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            text-align: center;
+            padding: 30px;
+            margin: 0;
+        }
+        .container {
+            max-width: 520px;
+            margin: 0 auto;
+        }
+        .icon { font-size: 50px; color: #7952b3; margin-top: 20px; }
+        h2 { margin: 10px 0 5px 0; }
+        .subtitle { color: #8a8b98; font-size: 14px; margin-bottom: 30px; }
+        
+        .drop-zone {
+            border: 2px dashed #4e5166;
+            background-color: #1a1b24;
+            padding: 40px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: border-color 0.3s;
+        }
+        .drop-zone:hover { border-color: #00adb5; }
+        
+        .btn {
+            background-color: #222533;
+            color: #555555;
+            border: none;
+            padding: 14px 40px;
+            font-size: 16px;
+            font-weight: bold;
+            border-radius: 5px;
+            margin-top: 25px;
+            cursor: not-allowed;
+            width: 100%;
+            transition: all 0.3s;
+        }
+        .active-btn {
+            background-color: #7952b3;
+            color: white;
+            cursor: pointer;
+        }
+        .active-btn:hover { background-color: #8a63c4; }
+
+        /* אלמנטים של התקדמות */
+        #statusSection { margin-top: 20px; display: none; }
+        .progress-bar-container {
+            width: 100%;
+            background-color: #1a1b24;
+            border-radius: 5px;
+            height: 12px;
+            margin-top: 10px;
+            overflow: hidden;
+        }
+        .progress-bar {
+            width: 0%;
+            height: 100%;
+            background-color: #00adb5;
+            transition: width 0.2s ease;
+        }
+        #statusText { color: #ff9f43; font-weight: bold; font-size: 14px; margin-top: 5px;}
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="icon">📱</div>
+    <h2>ממיר וידאו לנוקיה</h2>
+    <div class="subtitle">עובד לכל המכשירים מבוססי MOCOR (רץ ישירות בדפדפן!)</div>
+
+    <div class="drop-zone" id="dropZone">
+        <div style="font-size: 40px; color: #4e5166;">📥</div>
+        <p id="dropText">גרור סרטון לכאן<br><br>או לחץ לבחירה ידנית</p>
+        <input type="file" id="fileInput" accept="video/*" style="display: none;">
+    </div>
+
+    <div id="statusSection">
+        <div id="statusText">טוען את מנוע ההמרה...</div>
+        <div class="progress-bar-container">
+            <div class="progress-bar" id="progressBar"></div>
+        </div>
+    </div>
+
+    <button class="btn" id="convertBtn" disabled>🚀 התחל המרה</button>
+</div>
+
+<script>
+    const { createFFmpeg, fetchFile } = FFmpeg;
+    let ffmpeg = null;
+
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const convertBtn = document.getElementById('convertBtn');
+    const dropText = document.getElementById('dropText');
+    const statusSection = document.getElementById('statusSection');
+    const statusText = document.getElementById('statusText');
+    const progressBar = document.getElementById('progressBar');
+    
+    let selectedFile = null;
+
+    // פתיחת סייר הקבצים בלחיצה
+    dropZone.addEventListener('click', () => fileInput.click());
+
+    fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
+
+    // אפקטים של גרירה
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.style.borderColor = '#00adb5'; });
+    dropZone.addEventListener('dragleave', () => dropZone.style.borderColor = '#4e5166'; });
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.style.borderColor = '#4e5166';
+        handleFiles(e.dataTransfer.files);
+    });
+
+    function handleFiles(files) {
+        if (files.length > 0) {
+            selectedFile = files[0]; // תומך כרגע בקובץ אחד בכל פעם בדפדפן
+            dropText.innerHTML = `📊 הקובץ נטען בהצלחה:<br><b>${selectedFile.name}</b>`;
+            dropText.style.color = '#00adb5';
+            convertBtn.disabled = false;
+            convertBtn.classList.add('active-btn');
+        }
+    }
+
+    // פונקציית ההמרה הראשית
+    convertBtn.addEventListener('click', async () => {
+        if (!selectedFile) return;
+
+        // חסימת כפתורים ומניעת לחיצות חוזרות
+        convertBtn.disabled = true;
+        convertBtn.classList.remove('active-btn');
+        statusSection.style.display = 'block';
+        progressBar.style.width = '0%';
+
+        try {
+            // 1. אתחול FFmpeg במידה ועדיין לא אותחל
+            if (!ffmpeg) {
+                statusText.innerText = "מכין את סביבת העבודה (בפעם הראשונה זה עשוי לקחת כמה שניות)...";
+                ffmpeg = createFFmpeg({ log: false });
+                
+                // עדכון אחוזים מתוך ה-FFmpeg
+                ffmpeg.setProgress(({ ratio }) => {
+                    let pct = Math.round(ratio * 100);
+                    if (pct >= 0 && pct <= 100) {
+                        progressBar.style.width = pct + '%';
+                        statusText.innerText = `ממיר כעת: ${pct}%`;
+                    }
+                });
+                
+                await ffmpeg.load();
+            }
+
+            statusText.innerText = "קורא את קובץ הוידאו...";
+            
+            // 2. כתיבת הקובץ לזיכרון הווירטואלי של הדפדפן
+            const inputName = selectedFile.name;
+            const outputName = "output_nokia.mp4";
+            ffmpeg.FS('writeFile', inputName, await fetchFile(selectedFile));
+
+            statusText.innerText = "ממיר וידאו... אנא אל תסגור את הלשונית";
+
+            // 3. הרצת פקודת ה-FFmpeg המדויקת מהפייתון שלך
+            await ffmpeg.run(
+                '-i', inputName,
+                '-vf', 'scale=320:240:force_original_aspect_ratio=decrease,pad=320:240:(ow-iw)/2:(oh-ih)/2',
+                '-vcodec', 'libx264', 
+                '-profile:v', 'baseline', 
+                '-level', '3.0',
+                '-b:v', '250k', 
+                '-maxrate', '300k', 
+                '-bufsize', '500k',
+                '-acodec', 'aac', 
+                '-b:a', '52k', 
+                '-ac', '1',
+                '-async', '1', 
+                '-vsync', 'cfr', 
+                outputName
+            );
+
+            statusText.innerText = "המרה הושלמה! מוריד את הקובץ...";
+
+            // 4. קריאת הקובץ המומר מהזיכרון והורדה למחשב של המשתמש
+            const data = ffmpeg.FS('readFile', outputName);
+            const blob = new Blob([data.buffer], { type: 'video/mp4' });
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            // שמירה בשם המקורי בתוספת nokia_
+            a.download = inputName.substring(0, inputName.lastIndexOf('.')) + '_nokia.mp4';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+
+            // ניקוי הזיכרון הווירטואלי
+            ffmpeg.FS('unlink', inputName);
+            ffmpeg.FS('unlink', outputName);
+
+            statusText.innerText = "הקובץ ירד בהצלחה! 🎉";
+            statusText.style.color = "#00adb5";
+
+        } catch (error) {
+            console.error(error);
+            statusText.innerText = "אירעה שגיאה במהלך ההמרה. ודא שהקובץ תקין.";
+            statusText.style.color = "#ff4d4d";
+        } finally {
+            // החזרת המצב לקדמותו
+            convertBtn.disabled = false;
+            convertBtn.classList.add('active-btn');
+        }
+    });
+</script>
+
+</body>
+</html>
